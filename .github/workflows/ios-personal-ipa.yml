@@ -1,0 +1,84 @@
+name: Personal unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-ios-ipa
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Check toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          if ! xcrun metal -v >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun -k
+          fi
+          xcrun metal -v
+
+      - name: Build unsigned device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -workspace xcode/omim.xcworkspace \
+            -scheme OMaps \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/om-derived" \
+            -quiet \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS= \
+            DEVELOPMENT_TEAM= \
+            BUNDLE_IDENTIFIER=io.github.yizhe.organicmaps \
+            2>&1 | tee "$RUNNER_TEMP/ios-build.log"
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/om-derived/Build/Products/Release-iphoneos/Organic Maps.app"
+          test -d "$app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          xcrun lipo -verify_arch arm64 "$app/$executable"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$app" "$RUNNER_TEMP/ipa/Payload/Organic Maps.app"
+          cd "$RUNNER_TEMP/ipa"
+          ditto -c -k --keepParent Payload OrganicMaps-unsigned.ipa
+          unzip -t OrganicMaps-unsigned.ipa > "$RUNNER_TEMP/ipa-validation.log"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrganicMaps-unsigned-${{ github.run_number }}
+          path: ${{ runner.temp }}/ipa/OrganicMaps-unsigned.ipa
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-diagnostics-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/ios-build.log
+            ${{ runner.temp }}/ipa-validation.log
+          retention-days: 3
