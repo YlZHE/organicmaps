@@ -57,7 +57,7 @@ jobs:
           app="$RUNNER_TEMP/om-derived/Build/Products/Release-iphoneos/Organic Maps.app"
           test -d "$app"
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
-          xcrun lipo -verify_arch arm64 "$app/$executable"
+          xcrun lipo "$app/$executable" -verify_arch arm64
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           ditto "$app" "$RUNNER_TEMP/ipa/Payload/Organic Maps.app"
           cd "$RUNNER_TEMP/ipa"
